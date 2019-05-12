@@ -9,6 +9,7 @@
  */
 
 #include "drv_common.h"
+#include "delay.h"
 
 #ifdef RT_USING_SERIAL
 #include "drv_usart.h"
@@ -125,6 +126,8 @@ RT_WEAK void rt_hw_board_init()
     SystemClock_Config();
     rt_hw_systick_init();
 
+		delay_init(180);
+	
     /* Heap initialization */
 #if defined(RT_USING_HEAP)
     rt_system_heap_init((void *)HEAP_BEGIN, (void *)HEAP_END);

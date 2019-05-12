@@ -11,7 +11,7 @@ finsh_debug.c
 displayInfo.c
 delay.c
 cpuusage.c
-udp_demo.c
+update.c
 """)
 
 group = DefineGroup('Applications', src, depend = [''], CPPPATH = CPPPATH)

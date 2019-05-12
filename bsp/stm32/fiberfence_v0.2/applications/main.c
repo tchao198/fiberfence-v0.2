@@ -28,6 +28,8 @@
 #include "key_app.h"
 #include "lcd.h"
 
+#include "dsp.h"
+
 #ifdef RT_USING_DFS
 /* dfs init */
 
@@ -154,49 +156,49 @@ int main(void)
 								
 		alarmid_A = rt_thread_create("alarm_process_A",
         rt_alarm_process_A_thread_entry, RT_NULL,
-        2048, RT_THREAD_PRIORITY_MAX/3-1, 20);
+        1024, RT_THREAD_PRIORITY_MAX/3-1, 20);
 
     if (alarmid_A != RT_NULL)
         rt_thread_startup(alarmid_A);
 		
 		alarmid_B = rt_thread_create("alarm_process_B",
         rt_alarm_process_B_thread_entry, RT_NULL,
-        2048, RT_THREAD_PRIORITY_MAX/3-1, 20);
+        1024, RT_THREAD_PRIORITY_MAX/3-1, 20);
 
     if (alarmid_B != RT_NULL)
         rt_thread_startup(alarmid_B);
 		
 		udp_send_id = rt_thread_create("udp_send_data",
         udp_send_data_entry, RT_NULL,
-        4096, RT_THREAD_PRIORITY_MAX/3-1, 20);
+        2048, RT_THREAD_PRIORITY_MAX/3-1, 20);
 
     if (udp_send_id != RT_NULL)
         rt_thread_startup(udp_send_id);
 		
 		udp_cmd_id = rt_thread_create("udp_send_cmd",
         udp_send_cmd_entry, RT_NULL,
-        2048, RT_THREAD_PRIORITY_MAX/3, 20);
+        1024, RT_THREAD_PRIORITY_MAX/3, 20);
 
     if (udp_cmd_id != RT_NULL)
         rt_thread_startup(udp_cmd_id);
 		
 		key_id = rt_thread_create("key_thread",
         rt_key_thread_entry, RT_NULL,
-        2048, RT_THREAD_PRIORITY_MAX/3-3, 20);
+        512, RT_THREAD_PRIORITY_MAX/3-3, 20);
 
     if (key_id != RT_NULL)
         rt_thread_startup(key_id);
 		
 		power_id = rt_thread_create("optic_power_thread",
         rt_optic_power_thread_entry, RT_NULL,
-        2048, RT_THREAD_PRIORITY_MAX/3, 20);
+        512, RT_THREAD_PRIORITY_MAX/3, 20);
 
     if (power_id != RT_NULL)
         rt_thread_startup(power_id);
 		
 		sys_led_id = rt_thread_create("sys_led_thread",
         rt_system_led_thread_entry, RT_NULL,
-        2048, RT_THREAD_PRIORITY_MAX/3, 20);
+        512, RT_THREAD_PRIORITY_MAX/3, 20);
 
     if (sys_led_id != RT_NULL)
         rt_thread_startup(sys_led_id);
@@ -208,6 +210,7 @@ int main(void)
 		
 		
 		//rt_kprintf("The current version of APP firmware is 1.0.0\n");
+		rt_kprintf("HEAP_BEGIN:%x\n",HEAP_BEGIN);
 		
 		extern int phy_register_read(int reg);
 		int phy_status;
@@ -352,7 +355,7 @@ static int hwtimer_init(void)
     }
 
     timeout_s.sec = 0;
-    timeout_s.usec = 25;
+    timeout_s.usec = 100;
 
     if (rt_device_write(hw_dev, 0, &timeout_s, sizeof(timeout_s)) != sizeof(timeout_s))
     {
@@ -363,22 +366,51 @@ static int hwtimer_init(void)
     return ret;
 }
 
+static int set_sample_frq(int argc, char **argv)
+{
+	if(argc!=2)
+		return -1;
+	
+	int frq=10000;
+	rt_hwtimerval_t timeout_s;
+	rt_device_t hw_dev = RT_NULL;
+	
+	frq = atoi(argv[1]);
+	timeout_s.sec = 0;
+  timeout_s.usec = 1000000/frq;
+	
+	hw_dev = rt_device_find(HWTIMER_DEV_NAME);
+	if (hw_dev == RT_NULL)
+	{
+			rt_kprintf("hwtimer sample run failed! can't find %s device!\n", HWTIMER_DEV_NAME);
+			return RT_ERROR;
+	}
+	
+	if (rt_device_write(hw_dev, 0, &timeout_s, sizeof(timeout_s)) != sizeof(timeout_s))
+	{
+			rt_kprintf("set timeout value failed\n");
+			return RT_ERROR;
+	}
+	return 0;
+}
+#ifdef RT_USING_FINSH
+#include <finsh.h>
+FINSH_FUNCTION_EXPORT_ALIAS(set_sample_frq, __cmd_set_frq,);
+#endif
+
 void udp_send_data_entry(void* parameter)
 {
 		rt_rbb_blk_t blk;
 		
     int sock, port=8089;
     struct sockaddr_in server_addr;
-		char *tmp;
 		struct hostent *host_pc;
-		tmp=rt_malloc(2004);
 
 		extern struct hostent *gethostbyname(const char *name);
     host_pc = (struct hostent *) gethostbyname("192.168.1.102");
 
     if ((sock = socket(AF_INET, SOCK_DGRAM, 0)) == -1 )
     {
-				rt_free(tmp);
         rt_kprintf("Socket error\n");
         return;
     }
@@ -397,14 +429,11 @@ void udp_send_data_entry(void* parameter)
 			rt_mutex_take(dynamic_mutex, RT_WAITING_FOREVER);
 			blk = rt_rbb_blk_get(rbb);
 			if(blk!=0 && blk->size==2002){
-				*(rt_uint16_t *)tmp = *(rt_uint16_t *)blk->buf;
-				rt_memcpy(tmp+2, blk->buf+2, 1000);
-				sendto(sock, tmp, 1002, 0,
+				sendto(sock, blk->buf, 1002, 0,
 					 (struct sockaddr *) &server_addr, sizeof(struct sockaddr));
 				
-				*(rt_uint16_t *)(tmp+1002) = *(rt_uint16_t *)blk->buf;
-				rt_memcpy(tmp+1002+2, blk->buf+1002, 1000);
-				sendto(sock, tmp, 1002, 0,
+				*(rt_uint16_t *)(blk->buf+1000) = *(rt_uint16_t *)blk->buf;
+				sendto(sock, blk->buf+1000, 1002, 0,
 					 (struct sockaddr *) &server_addr, sizeof(struct sockaddr));
 				
 				//rt_kprintf("send data.\n");
@@ -425,7 +454,6 @@ void udp_send_data_entry(void* parameter)
 		}
 		
     close(sock);
-		rt_free(tmp);
 }
 
 void udp_send_cmd_entry(void* parameter)
@@ -436,7 +464,7 @@ void udp_send_cmd_entry(void* parameter)
     struct sockaddr_in server_addr;
 		char *tmp;
 		struct hostent *host_pc;
-		tmp=rt_malloc(2004);
+		tmp=rt_malloc(512);
 
     host_pc = (struct hostent *) gethostbyname("192.168.1.200");
 
@@ -479,16 +507,36 @@ void udp_send_cmd_entry(void* parameter)
 /*
 *******************防区A报警信号处理**********************
 */
+float32_t testInputA[TEST_LENGTH_SAMPLES]; /* 采样点 */
+float32_t testOutputA[TEST_LENGTH_SAMPLES]; /* 滤波后输出 */
 void rt_alarm_process_A_thread_entry(void* parameter)
 {
-	int i, count=0;
+	int i, count=0, alarm_count=0;
 	rt_uint16_t *value;
-	float tmp=0, mean_value=2048;
+	float32_t mean_value=2048, rms=300;
 
+	float32_t IIRStateF32[4*NumStages]; /* 状态缓存，大小numTaps + blockSize - 1*/
+	
+	//滤波器初始化
+	arm_biquad_casd_df1_inst_f32 S;
+	arm_biquad_cascade_df1_init_f32(&S, NumStages, (float32_t *)&IIRCoeffs32LP[0], (float32_t	*)&IIRStateF32[0]);
+	
 	while(1)
 	{
 		if (rt_mb_recv(&mb_a, (rt_ubase_t*)&value, RT_WAITING_FOREVER)== RT_EOK)
 		{
+			//浮点转换
+			for(int i=0; i<1000; i++){
+				testInputA[i] = value[i];
+			}
+			arm_biquad_cascade_df1_f32(&S, testInputA, testOutputA, TEST_LENGTH_SAMPLES);
+			
+			//无符号转换
+			for(int i=0; i<1000; i++){
+				testOutputA[i] = testOutputA[i]*ScaleValue+2048;
+				value[i] = testOutputA[i];
+			}
+			
 			
 			//等待一个报警时间间隔
 			if(count<20*5){
@@ -501,21 +549,30 @@ void rt_alarm_process_A_thread_entry(void* parameter)
 			{
 				if(value[i]>info.item1.param1 || value[i]< (mean_value-(info.item1.param1-mean_value)))
 				{
+  				alarm_count++;
+				}
+			}
+			
+			
+			if(alarm_count>50)
+			{
 					LOG_E("Alarmed in zone A. value:%d mean:%f th:%d", value[i], mean_value, info.item1.param1);
 					count=0;        //报警时间间隔清零，开始计数
 					send_cmd(CMD_ALARM, 0);
-  				break;
-				}
-				tmp+=value[i];
+					rt_pin_write(ALARM_A_LED_PIN_NUM, PIN_LOW);
 			}
-			mean_value=tmp/i;
-			tmp=0;
+			else{
+				arm_mean_f32(testOutputA, 1000, &mean_value);
+				arm_rms_f32(testOutputA, 1000, &rms);
+			}
+			
+			alarm_count=0;
 		}
 		
 		//达到报警时间间隔，关闭报警
 		if(count>=20*5)
 		{
-			;
+			rt_pin_write(ALARM_A_LED_PIN_NUM, PIN_HIGH);
 		}
 		
 		//将数据打包发送到PC处理
@@ -529,15 +586,33 @@ void rt_alarm_process_A_thread_entry(void* parameter)
 /*
 *******************防区B报警信号处理**********************
 */
+float32_t testInputB[TEST_LENGTH_SAMPLES]; /* 采样点 */
+float32_t testOutputB[TEST_LENGTH_SAMPLES]; /* 滤波后输出 */
 void rt_alarm_process_B_thread_entry(void* parameter)
 {
-	int i, count=0;
+	int i, count=0,alarm_count=0;
 	rt_uint16_t *value;
-	float tmp=0, mean_value=2048;
-
+	float mean_value=2048, rms=300;
+	
+	float32_t IIRStateF32[4*NumStages]; /* 状态缓存，大小numTaps + blockSize - 1*/
+	
+	//滤波器初始化
+	arm_biquad_casd_df1_inst_f32 S;
+	arm_biquad_cascade_df1_init_f32(&S, NumStages, (float32_t *)&IIRCoeffs32LP[0], (float32_t	*)&IIRStateF32[0]);
+	
 	while(1){
 		if (rt_mb_recv(&mb_b, (rt_ubase_t*)&value, RT_WAITING_FOREVER)== RT_EOK)
 		{
+			//浮点转换
+			for(int i=0; i<1000; i++){
+				testInputB[i] = value[i];
+			}
+			arm_biquad_cascade_df1_f32(&S, testInputB, testOutputB, TEST_LENGTH_SAMPLES);
+			
+			//无符号转换
+			for(int i=0; i<1000; i++){
+				value[i] = testOutputB[i]*ScaleValue+2048;
+			}
 			
 			//等待一个报警时间间隔
 			if(count<20*5){
@@ -548,24 +623,33 @@ void rt_alarm_process_B_thread_entry(void* parameter)
 			//开始信号处理
 			for(i=0; i<1000; i++)
 			{
-				if( value[i]>info.item1.param1 || value[i]< (mean_value-(info.item1.param1-mean_value)) )
+				if(value[i]>info.item2.param1 || value[i]< (mean_value-(info.item2.param1-mean_value)))
 				{
-					LOG_E("Alarmed in zone B. value:%d mean:%f th:%d", value[i], mean_value, info.item1.param1);
-					count=0;          //报警时间间隔清零，开始计数
-					send_cmd(CMD_ALARM, 1);
-  				break;
+  				alarm_count++;
 				}
-				tmp+=value[i];
 			}
-			mean_value=tmp/i;
-			tmp=0;
+			
+			
+			if(alarm_count>50)
+			{
+					LOG_E("Alarmed in zone B. value:%d mean:%f th:%d", value[i], mean_value, info.item2.param1);
+					count=0;        //报警时间间隔清零，开始计数
+					send_cmd(CMD_ALARM, 1);
+					rt_pin_write(ALARM_B_LED_PIN_NUM, PIN_LOW);
+			}
+			else{
+				arm_mean_f32(testOutputB, 1000, &mean_value);
+				arm_rms_f32(testOutputB, 1000, &rms);
+			}
+			
+			alarm_count=0;
 		}
 		
 		
 		//达到报警时间间隔，关闭报警
 		if(count>=20*5)
 		{
-			;
+			rt_pin_write(ALARM_B_LED_PIN_NUM, PIN_HIGH);
 		}
 		
 		
@@ -618,9 +702,9 @@ void rt_optic_power_thread_entry(void* parameter)
 			rt_pin_write(POWER_A_LED_PIN_NUM, PIN_LOW);
 		
 		if(adc_data_a.dc2[10]<info.item3.param1)
-			rt_pin_write(POWER_A_LED_PIN_NUM, PIN_HIGH);
+			rt_pin_write(POWER_B_LED_PIN_NUM, PIN_HIGH);
 		else
-			rt_pin_write(POWER_A_LED_PIN_NUM, PIN_LOW);
+			rt_pin_write(POWER_B_LED_PIN_NUM, PIN_LOW);
 		rt_thread_delay(250);
 
 	}

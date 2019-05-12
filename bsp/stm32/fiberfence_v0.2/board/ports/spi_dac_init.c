@@ -84,7 +84,7 @@ int set_spi_dac(int argc, char **argv)
 		else
 			return -1;
 	
-		rt_spi_send(device, &value, 1);
+		rt_spi_send(device, &value, 2);
 	}
 	return 0;
 }

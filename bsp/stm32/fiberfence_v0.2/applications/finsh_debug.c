@@ -2,6 +2,7 @@
 #include "key_app.h"
 #include <dfs_posix.h>
 #include <string.h>
+#include <math.h>
 
 extern struct Display_Info info;
 extern struct rt_mailbox mb_a, mb_b;
@@ -201,6 +202,15 @@ void reset_config()
 }
 RTM_EXPORT(reset_config);
 
+void test(void)
+{
+		uint16_t i,result;
+		for(i=0;i<1000;i++){
+			result = (int)(2048+10*cos(2*3.1415926*5.0*i/5000.0)+20);
+			rt_kprintf("%d, %d\n", result&0x0fff, i);
+		}
+}
+
 #ifdef RT_USING_FINSH
 #include <finsh.h>
 FINSH_FUNCTION_EXPORT_ALIAS(list_all_param, __cmd_lap, list all parameter);
@@ -210,4 +220,5 @@ FINSH_FUNCTION_EXPORT(test_fgets,);
 FINSH_FUNCTION_EXPORT_ALIAS(save_config, __cmd_save_config, save configure parameters to sdcard);
 FINSH_FUNCTION_EXPORT_ALIAS(load_config, __cmd_load_config, load configure parameters from sdcard);
 FINSH_FUNCTION_EXPORT_ALIAS(reset_config, __cmd_reset_config, reaset configure parameters to default);
+FINSH_FUNCTION_EXPORT_ALIAS(test, __cmd_test,);
 #endif
