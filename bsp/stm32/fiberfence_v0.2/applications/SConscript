@@ -12,6 +12,9 @@ displayInfo.c
 delay.c
 cpuusage.c
 update.c
+update_tcp.c
+udp_server.c
+../DSP_lib/arm_cortexM4lf_math.lib
 """)
 
 group = DefineGroup('Applications', src, depend = [''], CPPPATH = CPPPATH)

@@ -70,13 +70,9 @@ int dac3_init()
 INIT_COMPONENT_EXPORT(dac3_init);
 
 
-int set_spi_dac(int argc, char **argv)
+int set_dac(rt_uint16_t value, rt_uint16_t chip_id)
 {
-	struct rt_spi_device *device;
-	rt_uint16_t chip_id, value;
-	if(argc==3){
-		chip_id = atoi(argv[1]);
-		value = atoi(argv[2]);
+		struct rt_spi_device *device;
 		if(chip_id==2)
 			device = (struct rt_spi_device *) rt_device_find("spi20");
 		else if(chip_id==3)
@@ -85,7 +81,18 @@ int set_spi_dac(int argc, char **argv)
 			return -1;
 	
 		rt_spi_send(device, &value, 2);
+		return 0;
+}
+
+int set_spi_dac(int argc, char **argv)
+{
+	
+	rt_uint16_t chip_id, value;
+	if(argc==3){
+		chip_id = atoi(argv[1]);
+		value = atoi(argv[2]);
+		set_dac(value, chip_id);
 	}
 	return 0;
 }
-MSH_CMD_EXPORT(set_spi_dac, set spi dac)
+MSH_CMD_EXPORT(set_spi_dac, set spi dac example:set_spi_dac chip_id value)

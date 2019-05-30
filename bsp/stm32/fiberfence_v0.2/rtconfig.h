@@ -6,7 +6,7 @@
 
 /* RT-Thread Kernel */
 
-#define RT_NAME_MAX 16
+#define RT_NAME_MAX 24
 #define RT_ALIGN_SIZE 4
 #define RT_THREAD_PRIORITY_32
 #define RT_THREAD_PRIORITY_MAX 32
@@ -303,11 +303,7 @@
 #define BSP_USING_ON_CHIP_FLASH
 #define BSP_USING_SPI
 #define BSP_USING_SPI2
-//#define BSP_SPI2_TX_USING_DMA
-//#define BSP_SPI2_RX_USING_DMA
 #define BSP_USING_SPI3
-//#define BSP_SPI3_TX_USING_DMA
-//#define BSP_SPI3_RX_USING_DMA
 #define BSP_USING_SPI5
 #define BSP_SPI5_TX_USING_DMA
 #define BSP_SPI5_RX_USING_DMA

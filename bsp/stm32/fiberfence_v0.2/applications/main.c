@@ -70,13 +70,14 @@ ADC_data_t adc_data_a, adc_data_b;
 
 rt_rbb_t rbb, rbb_cmd;
 
-rt_thread_t alarmid_A, alarmid_B, udp_send_id, udp_cmd_id, power_id, key_id, sys_led_id;
+rt_thread_t alarmid_A, alarmid_B, udp_send_id, udp_cmd_id, power_id, key_id, sys_led_id, presend_id;
 
 volatile u16 id = 0;
 
 volatile rt_bool_t data_flag = RT_FALSE;
 
 struct rt_mailbox mb_a, mb_b;
+rt_mailbox_t mb_presend_data;
 
 static char mb_a_pool[4], mb_b_pool[4];
 
@@ -93,6 +94,7 @@ void udp_send_cmd_entry(void* parameter);
 void rt_key_thread_entry(void* parameter);
 void rt_optic_power_thread_entry(void* parameter);
 void rt_system_led_thread_entry(void* parameter);
+void rt_presend_thread_entry(void* parameter);
 
 void send_cmd(int cmd, int zone_id);
 void send_data(rt_uint16_t *value, rt_uint16_t len, rt_uint16_t chan);
@@ -139,7 +141,7 @@ int main(void)
         rt_kprintf("create dynamic mutex failed.\n");
     }
 		
-		rbb = rt_rbb_create(10020, 5);
+		rbb = rt_rbb_create(10020, 10);
 		rbb_cmd = rt_rbb_create(2048, 10);
 		
 		rt_mb_init(&mb_a,
@@ -153,6 +155,8 @@ int main(void)
 								&mb_b_pool[0], /* mail mb_pool */
 								sizeof(mb_b_pool)/4, /*size*/
 								RT_IPC_FLAG_FIFO);
+								
+		mb_presend_data = rt_mb_create("mb_presend", 16, RT_IPC_FLAG_FIFO);
 								
 		alarmid_A = rt_thread_create("alarm_process_A",
         rt_alarm_process_A_thread_entry, RT_NULL,
@@ -203,6 +207,13 @@ int main(void)
     if (sys_led_id != RT_NULL)
         rt_thread_startup(sys_led_id);
 		
+		presend_id = rt_thread_create("presend_thread",
+        rt_presend_thread_entry, RT_NULL,
+        2048, RT_THREAD_PRIORITY_MAX/3, 20);
+
+    if (presend_id != RT_NULL)
+        rt_thread_startup(presend_id);
+		
 		lcd1602_init();
 		AD7924_Init();
 		hwtimer_init();
@@ -249,20 +260,6 @@ void send_cmd(int cmd, int zone_id){
 		}
 }
 
-void send_data(rt_uint16_t *value, rt_uint16_t len, rt_uint16_t chan){
-		rt_rbb_blk_t blk;
-		blk = rt_rbb_blk_alloc(rbb, 2002);
-			if(blk!=0 && blk->size==2002){
-				*(rt_uint16_t *)blk->buf = chan;
-				rt_memcpy((char *)(blk->buf+2), (char *)value, len);
-				
-				rt_rbb_blk_put(blk);
-			}
-			else{
-				rt_kprintf("rt_rbb_blk_alloc err\n");
-			}
-}
-
 #define HWTIMER_DEV_NAME   "timer14"
 
 
@@ -298,11 +295,13 @@ static rt_err_t timeout_cb(rt_device_t dev, rt_size_t size)
 			{
 				error = rt_mb_send(&mb_a, (rt_uint32_t)&adc_data_a.ac1);
 				error = rt_mb_send(&mb_b, (rt_uint32_t)&adc_data_a.ac2);
+				error = rt_mb_send(mb_presend_data, (rt_uint32_t)&adc_data_a);
 			}
 			else
 			{
 				error = rt_mb_send(&mb_a, (rt_uint32_t)&adc_data_b.ac1);
 				error = rt_mb_send(&mb_b, (rt_uint32_t)&adc_data_b.ac2);
+				error = rt_mb_send(mb_presend_data, (rt_uint32_t)&adc_data_b);
 			}
 			
 			if(error != RT_EOK)                      //检查邮箱是否已满
@@ -355,7 +354,7 @@ static int hwtimer_init(void)
     }
 
     timeout_s.sec = 0;
-    timeout_s.usec = 100;
+    timeout_s.usec = 25;
 
     if (rt_device_write(hw_dev, 0, &timeout_s, sizeof(timeout_s)) != sizeof(timeout_s))
     {
@@ -428,24 +427,13 @@ void udp_send_data_entry(void* parameter)
 		while(1){
 			rt_mutex_take(dynamic_mutex, RT_WAITING_FOREVER);
 			blk = rt_rbb_blk_get(rbb);
-			if(blk!=0 && blk->size==2002){
+			if(blk!=0 && blk->size==1002){
 				sendto(sock, blk->buf, 1002, 0,
-					 (struct sockaddr *) &server_addr, sizeof(struct sockaddr));
-				
-				*(rt_uint16_t *)(blk->buf+1000) = *(rt_uint16_t *)blk->buf;
-				sendto(sock, blk->buf+1000, 1002, 0,
 					 (struct sockaddr *) &server_addr, sizeof(struct sockaddr));
 				
 				//rt_kprintf("send data.\n");
 				rt_rbb_blk_free(rbb, blk);
 			}
-//			else if(blk!=0 && blk->size==sizeof(Cmd_Data_t)){
-//				sendto(sock, blk->buf, sizeof(Cmd_Data_t), 0,
-//					 (struct sockaddr *) &server_addr, sizeof(struct sockaddr));
-//				
-//				rt_kprintf("send cmd_data.\n");
-//				rt_rbb_blk_free(rbb, blk);
-//			}
 			else{
 				//rt_kprintf("rt_rbb_blk_get failed.\n");
 				rt_thread_mdelay(1);
@@ -534,7 +522,6 @@ void rt_alarm_process_A_thread_entry(void* parameter)
 			//无符号转换
 			for(int i=0; i<1000; i++){
 				testOutputA[i] = testOutputA[i]*ScaleValue+2048;
-				value[i] = testOutputA[i];
 			}
 			
 			
@@ -547,19 +534,20 @@ void rt_alarm_process_A_thread_entry(void* parameter)
 			//开始信号处理
 			for(i=0; i<1000; i++)
 			{
-				if(value[i]>info.item1.param1 || value[i]< (mean_value-(info.item1.param1-mean_value)))
+				if(testOutputA[i]>info.item1.param1 || testOutputA[i]< (mean_value-(info.item1.param1-mean_value)))
 				{
   				alarm_count++;
 				}
 			}
 			
 			
-			if(alarm_count>50)
+			if(alarm_count>5)
 			{
-					LOG_E("Alarmed in zone A. value:%d mean:%f th:%d", value[i], mean_value, info.item1.param1);
+					LOG_E("Alarmed in zone A. value:%d mean:%f th:%d", testOutputA[i], mean_value, info.item1.param1);
 					count=0;        //报警时间间隔清零，开始计数
 					send_cmd(CMD_ALARM, 0);
 					rt_pin_write(ALARM_A_LED_PIN_NUM, PIN_LOW);
+					info.item7.param1++;
 			}
 			else{
 				arm_mean_f32(testOutputA, 1000, &mean_value);
@@ -578,7 +566,7 @@ void rt_alarm_process_A_thread_entry(void* parameter)
 		//将数据打包发送到PC处理
 		send_data:
 			rt_mutex_take(dynamic_mutex, RT_WAITING_FOREVER);
-			send_data(value, 2000, 11);
+			//send_data(value, 2000, 11);
 			rt_mutex_release(dynamic_mutex);
 	}
 }
@@ -611,7 +599,7 @@ void rt_alarm_process_B_thread_entry(void* parameter)
 			
 			//无符号转换
 			for(int i=0; i<1000; i++){
-				value[i] = testOutputB[i]*ScaleValue+2048;
+				testInputB[i] = testOutputB[i]*ScaleValue+2048;
 			}
 			
 			//等待一个报警时间间隔
@@ -623,7 +611,7 @@ void rt_alarm_process_B_thread_entry(void* parameter)
 			//开始信号处理
 			for(i=0; i<1000; i++)
 			{
-				if(value[i]>info.item2.param1 || value[i]< (mean_value-(info.item2.param1-mean_value)))
+				if(testInputB[i]>info.item2.param1 || testInputB[i]< (mean_value-(info.item2.param1-mean_value)))
 				{
   				alarm_count++;
 				}
@@ -632,10 +620,11 @@ void rt_alarm_process_B_thread_entry(void* parameter)
 			
 			if(alarm_count>50)
 			{
-					LOG_E("Alarmed in zone B. value:%d mean:%f th:%d", value[i], mean_value, info.item2.param1);
+					LOG_E("Alarmed in zone B. value:%d mean:%f th:%d", testInputB[i], mean_value, info.item2.param1);
 					count=0;        //报警时间间隔清零，开始计数
 					send_cmd(CMD_ALARM, 1);
 					rt_pin_write(ALARM_B_LED_PIN_NUM, PIN_LOW);
+					info.item8.param1++;
 			}
 			else{
 				arm_mean_f32(testOutputB, 1000, &mean_value);
@@ -656,10 +645,33 @@ void rt_alarm_process_B_thread_entry(void* parameter)
 		//将数据打包发送到PC处理
 		send_data:
 			rt_mutex_take(dynamic_mutex, RT_WAITING_FOREVER);
-			send_data(value, 2000, 22);
+			//send_data(value, 2000, 22);
 			rt_mutex_release(dynamic_mutex);
 	}
 	
+}
+
+void rt_presend_thread_entry(void* parameter)
+{
+	ADC_data_t *adc_data;
+	rt_rbb_blk_t blk;
+	while(1){
+		if (rt_mb_recv(mb_presend_data, (rt_ubase_t*)&adc_data, RT_WAITING_FOREVER)== RT_EOK){
+			for(int i=0; i<4; i++)
+			{		
+				blk = rt_rbb_blk_alloc(rbb, 1002);
+				if(blk!=0 && blk->size==1002){
+					*(uint16_t *)blk->buf=0x1234;
+					rt_memcpy((char *)(blk->buf+2), (char *)&adc_data->ac1[i*250], 500);
+					rt_memcpy((char *)(blk->buf+2+500), (char *)&adc_data->ac2[i*250], 500);
+					rt_rbb_blk_put(blk);
+				}
+				else{
+					rt_kprintf("rt_rbb_blk_alloc err\n");
+				}
+			}
+		}
+	}
 }
 
 /*
