@@ -74,7 +74,9 @@ rt_thread_t alarmid_A, alarmid_B, udp_send_id, udp_cmd_id, power_id, key_id, sys
 
 volatile u16 id = 0;
 
-volatile rt_bool_t data_flag = RT_FALSE;
+volatile rt_bool_t data_flag = RT_FALSE, enable_defence=RT_TRUE;
+
+uint16_t alarm_sensitive=5;
 
 struct rt_mailbox mb_a, mb_b;
 rt_mailbox_t mb_presend_data;
@@ -99,6 +101,11 @@ void rt_presend_thread_entry(void* parameter);
 void send_cmd(int cmd, int zone_id);
 void send_data(rt_uint16_t *value, rt_uint16_t len, rt_uint16_t chan);
 void telnet_server(void);
+
+extern rt_err_t onenet_mqtt_upload_digit(const char *ds_name, const double digit);
+extern int onenet_mqtt_init(void);
+extern int onenet_upload_cycle(void);
+extern int onenet_set_cmd_rsp();
 
 int main(void)
 {
@@ -219,8 +226,12 @@ int main(void)
 		hwtimer_init();
 		telnet_server();
 		
+		onenet_mqtt_init();
+		onenet_upload_cycle();
+		onenet_set_cmd_rsp();
 		
-		//rt_kprintf("The current version of APP firmware is 1.0.0\n");
+		
+		rt_kprintf("The current version of APP firmware is 1.0.0\n");
 		rt_kprintf("HEAP_BEGIN:%x\n",HEAP_BEGIN);
 		
 		extern int phy_register_read(int reg);
@@ -354,7 +365,7 @@ static int hwtimer_init(void)
     }
 
     timeout_s.sec = 0;
-    timeout_s.usec = 25;
+    timeout_s.usec = 50;
 
     if (rt_device_write(hw_dev, 0, &timeout_s, sizeof(timeout_s)) != sizeof(timeout_s))
     {
@@ -526,7 +537,7 @@ void rt_alarm_process_A_thread_entry(void* parameter)
 			
 			
 			//等待一个报警时间间隔
-			if(count<20*5){
+			if(count<20*info.item4.param1){
 				count++;
 				goto send_data;           //报警时间间隔未到，直接将数据发送到PC
 			}
@@ -541,15 +552,17 @@ void rt_alarm_process_A_thread_entry(void* parameter)
 			}
 			
 			
-			if(alarm_count>5)
+			if(alarm_count>alarm_sensitive && enable_defence)
 			{
 					LOG_E("Alarmed in zone A. value:%d mean:%f th:%d", testOutputA[i], mean_value, info.item1.param1);
 					count=0;        //报警时间间隔清零，开始计数
 					send_cmd(CMD_ALARM, 0);
 					rt_pin_write(ALARM_A_LED_PIN_NUM, PIN_LOW);
 					info.item7.param1++;
+					//onenet_mqtt_upload_digit("alarm_count_A", info.item7.param1);
+					onenet_mqtt_upload_digit("alarm_A", 1);
 			}
-			else{
+			else if(alarm_count<1){
 				arm_mean_f32(testOutputA, 1000, &mean_value);
 				arm_rms_f32(testOutputA, 1000, &rms);
 			}
@@ -558,9 +571,11 @@ void rt_alarm_process_A_thread_entry(void* parameter)
 		}
 		
 		//达到报警时间间隔，关闭报警
-		if(count>=20*5)
+		if(count==20*info.item4.param1)
 		{
 			rt_pin_write(ALARM_A_LED_PIN_NUM, PIN_HIGH);
+			onenet_mqtt_upload_digit("alarm_A", 0);
+			count++;
 		}
 		
 		//将数据打包发送到PC处理
@@ -603,7 +618,7 @@ void rt_alarm_process_B_thread_entry(void* parameter)
 			}
 			
 			//等待一个报警时间间隔
-			if(count<20*5){
+			if(count<20*info.item4.param1){
 				count++;
 				goto send_data;           //报警时间间隔未到，直接将数据发送到PC
 			}
@@ -618,15 +633,17 @@ void rt_alarm_process_B_thread_entry(void* parameter)
 			}
 			
 			
-			if(alarm_count>50)
+			if(alarm_count>alarm_sensitive && enable_defence)
 			{
 					LOG_E("Alarmed in zone B. value:%d mean:%f th:%d", testInputB[i], mean_value, info.item2.param1);
 					count=0;        //报警时间间隔清零，开始计数
 					send_cmd(CMD_ALARM, 1);
 					rt_pin_write(ALARM_B_LED_PIN_NUM, PIN_LOW);
 					info.item8.param1++;
+					//onenet_mqtt_upload_digit("alarm_count_B", info.item8.param1);
+					onenet_mqtt_upload_digit("alarm_B", 1);
 			}
-			else{
+			else if(alarm_count<1){
 				arm_mean_f32(testOutputB, 1000, &mean_value);
 				arm_rms_f32(testOutputB, 1000, &rms);
 			}
@@ -636,9 +653,11 @@ void rt_alarm_process_B_thread_entry(void* parameter)
 		
 		
 		//达到报警时间间隔，关闭报警
-		if(count>=20*5)
+		if(count==20*info.item4.param1)
 		{
 			rt_pin_write(ALARM_B_LED_PIN_NUM, PIN_HIGH);
+			onenet_mqtt_upload_digit("alarm_B", 0);
+			count++;
 		}
 		
 		

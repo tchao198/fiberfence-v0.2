@@ -1,6 +1,3 @@
-/*
- * 代码清单：UDP服务端，接收和处理上位机发送的命令
- */
 #include <rtthread.h>
 #include <stdio.h>
 #include <sys/socket.h>
@@ -160,14 +157,9 @@ static void cmd_process(int sock, struct Cmd_Data *cd, struct sockaddr *client_a
 	}
 }
 
-/*********************************************************
-* 函数名：udp_server_entry
-* 
-* 功  能：udp服务，接收上位机发送的命令，并响应上位机
-*********************************************************/
 static void udp_server_entry(void* paramemter)
 {
-    int sock;
+	int sock;
     int bytes_read;
     char *recv_data;
 		struct Cmd_Data *cmd_data;
@@ -213,8 +205,8 @@ static void udp_server_entry(void* paramemter)
 
     addr_len = sizeof(struct sockaddr);
     rt_kprintf("UDPServer Waiting for client on port 5000...\n");
-
-    while (1)
+	
+	while (1)
     {
         /* 从sock中收取最大1024字节数据 */
         bytes_read = recvfrom(sock, recv_data, 1024, 0,
@@ -240,18 +232,27 @@ static void udp_server_entry(void* paramemter)
 		
 		close(sock);
 		rt_free(recv_data);
-
-    return;
+		
+		return;
 }
 
 static int start_udp_server()
 {
 	rt_thread_t uid;
-	uid = rt_thread_create("udp_control_server", udp_server_entry, NULL, 1024, 15, 20);
-	if(uid!=NULL)
+	uid = rt_thread_create("udp_control_server", udp_server_entry, NULL, 1024, 12, 20);
+	if(uid!=NULL){
 		rt_thread_startup(uid);
-	rt_kprintf("Udp control Server Waiting for control client on port 5000...\n");
+	}
+	//rt_kprintf("Udp control Server Waiting for control client on port 5000...\n");
+	//rt_kprintf("Udp controld\n");
+	//rt_kprintf("Udp controld\n");
 	return 0;
 }
 INIT_APP_EXPORT(start_udp_server);
+//#ifdef RT_USING_FINSH
+//#include <finsh.h>
+//MSH_CMD_EXPORT_ALIAS(start_udp_server, start_udp_server, start_udp_server);
+//#endif
+
+
 
